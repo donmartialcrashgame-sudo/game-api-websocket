@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import { createServer } from "node:http";
-import { WebSocketServer } from "ws";
 import { config } from "./src/config.js";
 import { apiKeyRouter } from "./src/routes/apiKeys.js";
 import { gameRouter } from "./src/routes/game.js";
@@ -11,15 +10,36 @@ const app = express();
 const server = createServer(app);
 
 app.disable("x-powered-by");
-app.use(cors({
+
+const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || config.allowedOrigins.includes("*") || config.allowedOrigins.includes(origin)) {
+    // Allow server-to-server requests and the production frontend.
+    if (!origin) {
       return callback(null, true);
     }
-    return callback(new Error("Origin not allowed by CORS"));
+
+    const allowedOrigins = new Set([
+      "https://game-api.online",
+      "https://www.game-api.online",
+      ...config.allowedOrigins.filter((value) => value !== "*")
+    ]);
+
+    if (allowedOrigins.has(origin) || config.allowedOrigins.includes("*")) {
+      return callback(null, true);
+    }
+
+    // Return a normal CORS rejection rather than throwing, so the middleware
+    // can handle the request cleanly.
+    return callback(null, false);
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "apikey", "x-api-key"],
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (_req, res) => {
