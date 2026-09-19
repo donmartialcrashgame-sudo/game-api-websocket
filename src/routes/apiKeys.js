@@ -17,8 +17,8 @@ apiKeyRouter.get("/", async (req, res) => {
 apiKeyRouter.get("/usage", async (req, res) => {
   try {
     const keys = await listApiKeys(req.user); const plan = await getCustomerPlan(req.user.id); const per_key_limit = getPlanLimit(plan);
-    const used = keys.reduce((sum, key) => sum + Number(key.requests_used || 0), 0); const monthly_limit = per_key_limit * keys.length;
-    res.json({ plan, monthly_limit, requests_used: used, requests_remaining: Math.max(monthly_limit - used, 0), key_count: keys.length, max_active_keys: getPlanKeyLimit(plan), per_key_limit });
+    const used = keys.reduce((sum, key) => sum + Number(key.requests_used || 0), 0); const monthly_limit = per_key_limit === null ? null : per_key_limit * keys.length;
+    res.json({ plan, monthly_limit, requests_used: per_key_limit === null ? null : used, requests_remaining: per_key_limit === null ? null : Math.max(monthly_limit - used, 0), key_count: keys.length, max_active_keys: getPlanKeyLimit(plan), per_key_limit });
   } catch (error) {
     console.error("GET API USAGE ERROR:", error); res.status(500).json({ error: "Could not load API usage", details: error?.message || "Unknown error" });
   }
