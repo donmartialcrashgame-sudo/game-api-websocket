@@ -53,7 +53,7 @@ export async function getCustomerPlan(userId) {
   if (error) throw error;
   if (!data) return "free";
   if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) return "free";
-  return data.plan === "premium" ? "premium" : "free";
+  return ["free", "standard", "premium"].includes(data.plan) ? data.plan : "free";
 }
 
 export async function createApiKey(user, name = "Untitled key") {
