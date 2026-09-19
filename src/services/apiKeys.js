@@ -13,7 +13,6 @@ function monthStart() {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
 }
 
-
 export async function ensureCustomer(user) {
   const { error } = await supabase
     .from("customers")
@@ -36,10 +35,26 @@ export async function ensureCustomer(user) {
   return data;
 }
 
-export async function getCustomerPlan(userId) {\n  const { data, error } = await supabase\n    .from("subscriptions")\n    .select("plan,status,expires_at,starts_at")\n    .eq("customer_id", userId)\n    .eq("status", "active")\n    .order("created_at", { ascending: false })\n    .limit(1)\n    .maybeSingle();\n\n  if (error) throw error;\n  if (!data) return "free";\n  if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) return "free";\n  return data.plan === "premium" ? "premium" : data.plan === "free" ? "free" : "standard";\n}\n\nexport async function createApiKey(user, name = "Untitled key") {
-  await ensureCustomer(user);
+export async function getCustomerPlan(userId) {
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("plan,status,expires_at,starts_at")
+    .eq("customer_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
+  if (error) throw error;
+  if (!data) return "free";
+  if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) return "free";
+  return data.plan === "premium" ? "premium" : "free";
+}
+
+export async function createApiKey(user, name = "Untitled key") {
+  await ensureCustomer(user);
   const apiKey = generateApiKey();
+
   const { data, error } = await supabase
     .from("api_keys")
     .insert({
@@ -66,7 +81,29 @@ export async function listApiKeys(user) {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  const keys = data || [];
+  if (!keys.length) return [];
+
+  const ids = keys.map(k => k.id);
+  const { data: usage, error: usageError } = await supabase
+    .from("api_usage_monthly")
+    .select("api_key_id,request_count,period_start")
+    .in("api_key_id", ids)
+    .eq("period_start", monthStart());
+
+  if (usageError) throw usageError;
+
+  const usageMap = new Map((usage || []).map(row => [row.api_key_id, Number(row.request_count || 0)]));
+  return keys.map(key => {
+    const limit = getPlanLimit(key.plan);
+    const used = usageMap.get(key.id) || 0;
+    return {
+      ...key,
+      monthly_limit: limit,
+      requests_used: used,
+      requests_remaining: Math.max(limit - used, 0)
+    };
+  });
 }
 
 export async function revokeApiKey(user, id) {
@@ -103,7 +140,16 @@ export async function authenticateApiKey(apiKey) {
   return data;
 }
 
-export async function consumeApiLimit(keyId, limit) {\n  const { data, error } = await supabase.rpc("consume_api_limit", { p_api_key_id: keyId, p_limit: limit });\n  if (error) throw error;\n  return data;\n}\n\nexport async function touchApiKey(keyId) {
+export async function consumeApiLimit(keyId, limit) {
+  const { data, error } = await supabase.rpc("consume_api_limit", {
+    p_api_key_id: keyId,
+    p_limit: limit
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function touchApiKey(keyId) {
   const { error } = await supabase
     .from("api_keys")
     .update({ last_used_at: new Date().toISOString() })
