@@ -15,7 +15,7 @@ export async function requireApiKey(req, res, next) {
     const key = await authenticateApiKey(secret);
     if (!key) return res.status(401).json({ error: "Invalid, revoked, or expired API key" });
 
-    const usage = await consumeApiLimit(key.id, getPlanLimit(key.plan));
+    const limit = getPlanLimit(key.plan);\n    if (limit === null) {\n      req.apiKey = { ...key, monthlyLimit: null, requestsUsed: null, requestsRemaining: null };\n      return next();\n    }\n    const usage = await consumeApiLimit(key.id, limit);
     if (!usage.allowed) {
       const nextMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1));
       res.set("Retry-After", String(Math.max(60, Math.ceil((nextMonth.getTime() - Date.now()) / 1000))));
