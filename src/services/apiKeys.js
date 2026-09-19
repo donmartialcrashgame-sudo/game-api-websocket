@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase.js";
 import { generateApiKey, hashApiKey, last4 } from "../lib/crypto.js";
 
 export const PLAN_LIMITS = { free: 1000, standard: 50000, premium: 500000 };
+export const PLAN_KEY_LIMITS = { free: 2, standard: 10, premium: 50 };
 
 export function getPlanLimit(plan) {
   return PLAN_LIMITS[plan] || PLAN_LIMITS.free;
@@ -64,7 +65,7 @@ export async function createApiKey(user, name = "Untitled key") {
       key_hash: hashApiKey(apiKey),
       key_last4: last4(apiKey),
       status: "active",
-      plan: await getCustomerPlan(user.id)
+      plan
     })
     .select("id,customer_id,name,key_prefix,key_last4,status,last_used_at,created_at,expires_at,plan")
     .single();
