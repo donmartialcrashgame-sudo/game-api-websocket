@@ -2,10 +2,10 @@ import { config } from "../config.js";
 import { supabase } from "../lib/supabase.js";
 import { generateApiKey, hashApiKey, last4, encryptApiKey, decryptApiKey } from "../lib/crypto.js";
 
-export const PLAN_LIMITS = { free: 100, standard: 50000, premium: 500000 };
+export const PLAN_LIMITS = { free: 100, starter: null, standard: 200000, premium: 1000000 };
 export const PLAN_KEY_LIMITS = { free: 2, standard: 10, premium: 50 };
 
-export function getPlanLimit(plan) { return PLAN_LIMITS[plan] || PLAN_LIMITS.free; }
+export function getPlanLimit(plan) { return Object.prototype.hasOwnProperty.call(PLAN_LIMITS, plan) ? PLAN_LIMITS[plan] : PLAN_LIMITS.free; }
 export function getPlanKeyLimit(plan) { return PLAN_KEY_LIMITS[plan] || PLAN_KEY_LIMITS.free; }
 
 function monthStart() {
@@ -22,11 +22,14 @@ export async function ensureCustomer(user) {
 }
 
 export async function getCustomerPlan(userId) {
-  const { data, error } = await supabase.from("subscriptions").select("plan,status,expires_at,starts_at").eq("customer_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const { data, error } = await supabase.from("subscriptions").select("id,plan,status,expires_at,started_at").eq("customer_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   if (!data) return "free";
-  if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) return "free";
-  return ["free", "standard", "premium"].includes(data.plan) ? data.plan : "free";
+  if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) {
+    await supabase.from("subscriptions").update({ status: "expired", updated_at: new Date().toISOString() }).eq("customer_id", userId).eq("status", "active").eq("id", data.id);
+    return "free";
+  }
+  return ["free", "starter", "standard", "premium"].includes(data.plan) ? data.plan : "free";
 }
 
 export async function createApiKey(user, name = "Untitled key") {
@@ -57,7 +60,7 @@ export async function listApiKeys(user) {
   const usageMap = new Map((usage || []).map(row => [row.api_key_id, Number(row.request_count || 0)]));
   return keys.map(key => {
     const limit = getPlanLimit(key.plan); const used = usageMap.get(key.id) || 0;
-    return { ...key, monthly_limit: limit, requests_used: used, requests_remaining: Math.max(limit - used, 0) };
+    return { ...key, monthly_limit: limit, requests_used: used, requests_remaining: limit === null ? null : Math.max(limit - used, 0) };
   });
 }
 
