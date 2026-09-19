@@ -15,7 +15,18 @@ export async function requireApiKey(req, res, next) {
     const key = await authenticateApiKey(secret);
     if (!key) return res.status(401).json({ error: "Invalid, revoked, or expired API key" });
 
-    const limit = getPlanLimit(key.plan);\n    if (limit === null) {\n      req.apiKey = { ...key, monthlyLimit: null, requestsUsed: null, requestsRemaining: null };\n      return next();\n    }\n    const usage = await consumeApiLimit(key.id, limit);
+    const limit = getPlanLimit(key.plan);
+    if (limit === null) {
+      req.apiKey = {
+        ...key,
+        monthlyLimit: null,
+        requestsUsed: null,
+        requestsRemaining: null
+      };
+      return next();
+    }
+
+    const usage = await consumeApiLimit(key.id, limit);
     if (!usage.allowed) {
       const nextMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1));
       res.set("Retry-After", String(Math.max(60, Math.ceil((nextMonth.getTime() - Date.now()) / 1000))));
@@ -29,13 +40,20 @@ export async function requireApiKey(req, res, next) {
       });
     }
 
-    req.apiKey = { ...key, monthlyLimit: usage.limit, requestsUsed: usage.count, requestsRemaining: usage.remaining };
+    req.apiKey = {
+      ...key,
+      monthlyLimit: usage.limit,
+      requestsUsed: usage.count,
+      requestsRemaining: usage.remaining
+    };
+
     const now = Date.now();
     const previous = lastTouched.get(key.id) || 0;
     if (now - previous >= config.keyLastUsedUpdateMs) {
       lastTouched.set(key.id, now);
       void touchApiKey(key.id);
     }
+
     next();
   } catch (error) {
     console.error("API key authentication error:", error);
