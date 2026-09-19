@@ -78,7 +78,7 @@ export function attachRealtime(server) {
         if (socket.apiKey) {
           send(socket, { type: "auth_error", error: "Already authenticated" });
         } else {
-          await authenticateSocket(socket, String(message.apiKey || ""));
+          await authenticateSocket(socket, String(message.apiKey || message.api_key || ""));
         }
         return;
       }
@@ -89,7 +89,7 @@ export function attachRealtime(server) {
       }
 
       if (message.type === "subscribe") {
-        const channel = String(message.channel || "").trim();
+        const channel = String(message.channel || message.table || "").trim();
         if (!["crash_rounds", "big_odd_rounds"].includes(channel)) {
           send(socket, { type: "error", error: "Unsupported channel" });
           return;
