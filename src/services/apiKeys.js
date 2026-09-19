@@ -2,7 +2,7 @@ import { config } from "../config.js";
 import { supabase } from "../lib/supabase.js";
 import { generateApiKey, hashApiKey, last4 } from "../lib/crypto.js";
 
-export const PLAN_LIMITS = { free: 1000, standard: 50000, premium: 500000 };
+export const PLAN_LIMITS = { free: 100, standard: 50000, premium: 500000 };
 export const PLAN_KEY_LIMITS = { free: 2, standard: 10, premium: 50 };
 
 export function getPlanLimit(plan) {
