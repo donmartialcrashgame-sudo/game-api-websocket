@@ -1,6 +1,13 @@
 import { Router } from "express";
 import { requireUser } from "../middleware/auth.js";
-import { createApiKey, ensureCustomer, listApiKeys, revokeApiKey, getCustomerPlan, getPlanLimit } from "../services/apiKeys.js";
+import {
+  createApiKey,
+  ensureCustomer,
+  listApiKeys,
+  revokeApiKey,
+  getCustomerPlan,
+  getPlanLimit
+} from "../services/apiKeys.js";
 
 export const apiKeyRouter = Router();
 
@@ -11,7 +18,12 @@ apiKeyRouter.get("/", async (req, res) => {
     await ensureCustomer(req.user);
     const keys = await listApiKeys(req.user);
     const plan = await getCustomerPlan(req.user.id);
-    res.json({ keys, plan, monthly_limit: getPlanLimit(plan), monthly_limit_unit: "requests" });
+    res.json({
+      keys,
+      plan,
+      monthly_limit: getPlanLimit(plan),
+      monthly_limit_unit: "requests"
+    });
   } catch (error) {
     console.error("LIST API KEYS ERROR:", error);
     res.status(500).json({
@@ -27,14 +39,23 @@ apiKeyRouter.get("/usage", async (req, res) => {
     const plan = await getCustomerPlan(req.user.id);
     const monthly_limit = getPlanLimit(plan);
     const used = keys.reduce((sum, key) => sum + Number(key.requests_used || 0), 0);
-    res.json({ plan, monthly_limit, requests_used: used, requests_remaining: Math.max(monthly_limit - used, 0), key_count: keys.length });
+    res.json({
+      plan,
+      monthly_limit,
+      requests_used: used,
+      requests_remaining: Math.max(monthly_limit - used, 0),
+      key_count: keys.length
+    });
   } catch (error) {
     console.error("GET API USAGE ERROR:", error);
-    res.status(500).json({ error: "Could not load API usage", details: error?.message || "Unknown error" });
+    res.status(500).json({
+      error: "Could not load API usage",
+      details: error?.message || "Unknown error"
+    });
   }
 });
 
-apiKeyRouter.post("/", async (req, res) =>
+apiKeyRouter.post("/", async (req, res) => {
   try {
     const name = typeof req.body?.name === "string"
       ? req.body.name.trim().slice(0, 80)
@@ -53,7 +74,6 @@ apiKeyRouter.post("/", async (req, res) =>
     });
   } catch (error) {
     console.error("CREATE API KEY ERROR:", error);
-
     res.status(500).json({
       error: "Could not create API key",
       details: error?.message || "Unknown error",
