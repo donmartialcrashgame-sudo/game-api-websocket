@@ -54,13 +54,14 @@ export async function listApiKeys(user) {
   if (error) throw error;
   const keys = data || [];
   if (!keys.length) return [];
+  const currentPlan = await getCustomerPlan(user.id);
   const ids = keys.map(k => k.id);
   const { data: usage, error: usageError } = await supabase.from("api_usage_monthly").select("api_key_id,request_count,period_start").in("api_key_id", ids).eq("period_start", monthStart());
   if (usageError) throw usageError;
   const usageMap = new Map((usage || []).map(row => [row.api_key_id, Number(row.request_count || 0)]));
   return keys.map(key => {
-    const limit = getPlanLimit(key.plan); const used = usageMap.get(key.id) || 0;
-    return { ...key, monthly_limit: limit, requests_used: used, requests_remaining: limit === null ? null : Math.max(limit - used, 0) };
+    const effectivePlan = currentPlan; const limit = getPlanLimit(effectivePlan); const used = usageMap.get(key.id) || 0;
+    return { ...key, plan: effectivePlan, monthly_limit: limit, requests_used: used, requests_remaining: limit === null ? null : Math.max(limit - used, 0) };
   });
 }
 
