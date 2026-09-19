@@ -28,8 +28,6 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    // Return a normal CORS rejection rather than throwing, so the middleware
-    // can handle the request cleanly.
     return callback(null, false);
   },
   credentials: true,
@@ -39,7 +37,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (_req, res) => {
