@@ -9,6 +9,10 @@ export function getPlanLimit(plan) {
   return PLAN_LIMITS[plan] || PLAN_LIMITS.free;
 }
 
+export function getPlanKeyLimit(plan) {
+  return PLAN_KEY_LIMITS[plan] || PLAN_KEY_LIMITS.free;
+}
+
 function monthStart() {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
@@ -54,6 +58,21 @@ export async function getCustomerPlan(userId) {
 
 export async function createApiKey(user, name = "Untitled key") {
   await ensureCustomer(user);
+  const plan = await getCustomerPlan(user.id);
+  const { count, error: countError } = await supabase
+    .from("api_keys")
+    .select("id", { count: "exact", head: true })
+    .eq("customer_id", user.id)
+    .eq("status", "active");
+
+  if (countError) throw countError;
+  if ((count || 0) >= getPlanKeyLimit(plan)) {
+    const error = new Error("API key limit reached for your plan");
+    error.status = 403;
+    error.code = "API_KEY_LIMIT_REACHED";
+    throw error;
+  }
+
   const apiKey = generateApiKey();
 
   const { data, error } = await supabase
