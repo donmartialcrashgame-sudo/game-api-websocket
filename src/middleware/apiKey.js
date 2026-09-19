@@ -1,4 +1,4 @@
-import { authenticateApiKey, touchApiKey } from "../services/apiKeys.js";
+import { authenticateApiKey, touchApiKey, consumeApiLimit, getPlanLimit } from "../services/apiKeys.js";
 import { config } from "../config.js";
 
 const lastTouched = new Map();
@@ -15,7 +15,21 @@ export async function requireApiKey(req, res, next) {
     const key = await authenticateApiKey(secret);
     if (!key) return res.status(401).json({ error: "Invalid, revoked, or expired API key" });
 
-    req.apiKey = key;
+    const usage = await consumeApiLimit(key.id, getPlanLimit(key.plan));
+    if (!usage.allowed) {
+      const nextMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1));
+      res.set("Retry-After", String(Math.max(60, Math.ceil((nextMonth.getTime() - Date.now()) / 1000))));
+      return res.status(429).json({
+        error: "API monthly limit reached",
+        plan: key.plan,
+        limit: usage.limit,
+        used: usage.count,
+        remaining: 0,
+        period_start: usage.period_start
+      });
+    }
+
+    req.apiKey = { ...key, monthlyLimit: usage.limit, requestsUsed: usage.count, requestsRemaining: usage.remaining };
     const now = Date.now();
     const previous = lastTouched.get(key.id) || 0;
     if (now - previous >= config.keyLastUsedUpdateMs) {
