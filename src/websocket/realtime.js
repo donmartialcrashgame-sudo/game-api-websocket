@@ -192,6 +192,11 @@ export function attachRealtime(server) {
     anonymousConnections.add(socket);
     socket.channels = new Set();
 
+    // Crash rounds are the default read-only stream.
+    // A client only needs to connect; no Start/Crash/Subscribe
+    // action is required to receive the live round.
+    socket.channels.add("crash_rounds");
+
     send(socket, {
       type: "connected",
       service: "game-api-websocket",
@@ -199,6 +204,15 @@ export function attachRealtime(server) {
       protocol: "1.0",
       auth_required: config.wsRequireAuth
     });
+
+    send(socket, {
+      type: "subscribed",
+      channel: "crash_rounds"
+    });
+
+    if (config.demoCrashSimulator) {
+      send(socket, currentCrashPayload());
+    }
 
     socket.on("message", async (raw) => {
       let message;
