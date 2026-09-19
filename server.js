@@ -9,6 +9,8 @@ const server = createServer(app);
 const port = Number(process.env.PORT || 8080);
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "*").split(",").map(v => v.trim()).filter(Boolean);
 const keyPrefix = process.env.API_KEY_PREFIX || "gapi";
+const adminToken = process.env.ADMIN_TOKEN || "";
+function requireAdmin(req, res, next) { if (!adminToken || req.headers.authorization !== `Bearer ${adminToken}`) return res.status(401).json({ error: "Backend authorization required" }); next(); }
 
 app.use(cors({
   origin(origin, callback) {
@@ -55,7 +57,7 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "game-api-websocket" });
 });
 
-app.post("/api/keys", (req, res) => {
+app.post("/api/keys", requireAdmin, (req, res) => {
   const name = String(req.body?.name || "Untitled key").trim().slice(0, 60) || "Untitled key";
   const secret = makeSecret();
   const id = crypto.randomUUID();
@@ -80,14 +82,14 @@ app.post("/api/keys", (req, res) => {
   });
 });
 
-app.get("/api/keys", (req, res) => {
+app.get("/api/keys", requireAdmin, (req, res) => {
   const secret = getBearerSecret(req);
   if (!findKey(secret)) return res.status(401).json({ error: "Valid API key required" });
   const keys = [...apiKeys.values()].map(({ secret_hash, ...safe }) => safe);
   res.json({ keys });
 });
 
-app.post("/api/keys/:id/revoke", (req, res) => {
+app.post("/api/keys/:id/revoke", requireAdmin, (req, res) => {
   const secret = getBearerSecret(req);
   if (!findKey(secret)) return res.status(401).json({ error: "Valid API key required" });
   const item = apiKeys.get(req.params.id);
