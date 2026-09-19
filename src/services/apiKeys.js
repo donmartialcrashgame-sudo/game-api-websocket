@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase.js";
 import { generateApiKey, hashApiKey, last4, encryptApiKey, decryptApiKey } from "../lib/crypto.js";
 
 export const PLAN_LIMITS = { free: 100, starter: null, standard: 200000, premium: 1000000 };
-export const PLAN_KEY_LIMITS = { free: 2, standard: 10, premium: 50 };
+export const PLAN_KEY_LIMITS = { free: 2, starter: 2, standard: 10, premium: 50 };
 
 export function getPlanLimit(plan) { return Object.prototype.hasOwnProperty.call(PLAN_LIMITS, plan) ? PLAN_LIMITS[plan] : PLAN_LIMITS.free; }
 export function getPlanKeyLimit(plan) { return PLAN_KEY_LIMITS[plan] || PLAN_KEY_LIMITS.free; }
@@ -83,6 +83,26 @@ export async function authenticateApiKey(apiKey) {
   const { data, error } = await supabase.from("api_keys").select("id,customer_id,name,key_prefix,key_last4,status,last_used_at,created_at,expires_at,plan").eq("key_hash", hashApiKey(apiKey)).eq("status", "active").maybeSingle();
   if (error || !data) return null;
   if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) { await supabase.from("api_keys").update({ status: "revoked" }).eq("id", data.id).eq("status", "active"); return null; }
+  return data;
+}
+
+export async function activateSubscription(user, plan, paymentId, amount) {
+  const plans = { starter: { amount: 4000, months: 3 }, standard: { amount: 25000, months: 1 }, premium: { amount: 50000, months: 1 } };
+  const selected = plans[plan];
+  if (!selected) { const error = new Error("Invalid paid plan"); error.status = 400; throw error; }
+  await ensureCustomer(user);
+  const now = new Date();
+  const expires = new Date(now);
+  expires.setMonth(expires.getMonth() + selected.months);
+  const { data: existing } = await supabase.from("subscriptions").select("id").eq("customer_id", user.id).eq("status", "active").maybeSingle();
+  if (existing) {
+    await supabase.from("subscriptions").update({ status: "expired", updated_at: now.toISOString() }).eq("id", existing.id);
+  }
+  const { data, error } = await supabase.from("subscriptions").insert({
+    customer_id: user.id, plan, status: "active", payment_id: String(paymentId || "").slice(0, 200) || null,
+    amount: amount ?? selected.amount, currency: "NGN", started_at: now.toISOString(), expires_at: expires.toISOString(), updated_at: now.toISOString()
+  }).select("id,plan,status,amount,currency,started_at,expires_at,payment_id").single();
+  if (error) throw error;
   return data;
 }
 
