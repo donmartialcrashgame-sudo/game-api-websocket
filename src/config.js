@@ -11,7 +11,9 @@ export const config = {
   apiKeyPrefix: process.env.API_KEY_PREFIX || "gapi",
   allowedOrigins: csv(process.env.ALLOWED_ORIGINS, ["*"]),
   maxWsConnectionsPerKey: Number(process.env.MAX_WS_CONNECTIONS_PER_KEY || 100),
-  keyLastUsedUpdateMs: Number(process.env.KEY_LAST_USED_UPDATE_MS || 60000)
+  keyLastUsedUpdateMs: Number(process.env.KEY_LAST_USED_UPDATE_MS || 60000),
+  wsRequireAuth: String(process.env.WS_REQUIRE_AUTH || "false").toLowerCase() === "true",
+  demoCrashSimulator: String(process.env.DEMO_CRASH_SIMULATOR || "true").toLowerCase() === "true"
 };
 
 if (!config.supabaseUrl || !config.supabaseSecretKey) {
