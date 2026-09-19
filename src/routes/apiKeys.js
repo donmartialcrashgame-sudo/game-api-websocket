@@ -6,7 +6,8 @@ import {
   listApiKeys,
   revokeApiKey,
   getCustomerPlan,
-  getPlanLimit
+  getPlanLimit,
+  getPlanKeyLimit
 } from "../services/apiKeys.js";
 
 export const apiKeyRouter = Router();
@@ -22,7 +23,8 @@ apiKeyRouter.get("/", async (req, res) => {
       keys,
       plan,
       monthly_limit: getPlanLimit(plan),
-      monthly_limit_unit: "requests"
+      monthly_limit_unit: "requests_per_key",
+      max_active_keys: getPlanKeyLimit(plan)
     });
   } catch (error) {
     console.error("LIST API KEYS ERROR:", error);
@@ -37,14 +39,17 @@ apiKeyRouter.get("/usage", async (req, res) => {
   try {
     const keys = await listApiKeys(req.user);
     const plan = await getCustomerPlan(req.user.id);
-    const monthly_limit = getPlanLimit(plan);
+    const per_key_limit = getPlanLimit(plan);
     const used = keys.reduce((sum, key) => sum + Number(key.requests_used || 0), 0);
+    const monthly_limit = per_key_limit * keys.length;
     res.json({
       plan,
       monthly_limit,
       requests_used: used,
       requests_remaining: Math.max(monthly_limit - used, 0),
-      key_count: keys.length
+      key_count: keys.length,
+      max_active_keys: getPlanKeyLimit(plan),
+      per_key_limit
     });
   } catch (error) {
     console.error("GET API USAGE ERROR:", error);
@@ -74,6 +79,7 @@ apiKeyRouter.post("/", async (req, res) => {
     });
   } catch (error) {
     console.error("CREATE API KEY ERROR:", error);
+    if (error?.status === 403) return res.status(403).json({ error: error.message, code: error.code });
     res.status(500).json({
       error: "Could not create API key",
       details: error?.message || "Unknown error",
