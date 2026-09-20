@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireUser } from "../middleware/auth.js";
 import { config } from "../config.js";
-import { activateSubscription, ensureCustomer, getCustomerPlan, getPlanLimit, getPlanKeyLimit } from "../services/apiKeys.js";
+import { activateSubscription, cancelSubscription, ensureCustomer, getCustomerPlan, getPlanLimit, getPlanKeyLimit } from "../services/apiKeys.js";
 
 export const paymentRouter = Router();
 paymentRouter.use(requireUser);
@@ -29,4 +29,14 @@ paymentRouter.post("/demo/activate", async (req, res) => {
     const subscription = await activateSubscription(req.user,plan,paymentId,amount);
     res.status(201).json({success:true,mode:"demo",subscription,plan,monthly_limit:getPlanLimit(plan),max_active_keys:getPlanKeyLimit(plan)});
   } catch(error) { console.error("DEMO PAYMENT ERROR:",error); res.status(error?.status || 500).json({error:error?.message || "Could not activate demo plan"}); }
+});
+
+paymentRouter.post("/cancel", async (req, res) => {
+  try {
+    const result = await cancelSubscription(req.user);
+    res.json({ success: true, message: "Subscription cancelled and account moved to Starter.", cancelled_subscription: result.cancelled, subscription: result.subscription, plan: "starter", monthly_limit: getPlanLimit("starter"), max_active_keys: getPlanKeyLimit("starter") });
+  } catch(error) {
+    console.error("CANCEL SUBSCRIPTION ERROR:", error);
+    res.status(error?.status || 500).json({error: error?.message || "Could not cancel subscription"});
+  }
 });
