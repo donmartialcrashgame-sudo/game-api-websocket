@@ -87,6 +87,19 @@ export async function authenticateApiKey(apiKey) {
   return data;
 }
 
+async function sendAccountNotification(userId, title, message, url, tag) {
+  try {
+    if (!config.supabaseSecretKey) return;
+    await fetch(config.supabaseUrl.replace(/\/$/, "") + "/functions/v1/push-notifications", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + config.supabaseSecretKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "service-send", userId, title, message, url, tag })
+    });
+  } catch (error) {
+    console.error("ACCOUNT NOTIFICATION ERROR:", error?.message || error);
+  }
+}
+
 export async function activateSubscription(user, plan, paymentId, amount) {
   const plans = { starter: { amount: 4000, months: 3 }, standard: { amount: 25000, months: 1 }, premium: { amount: 50000, months: 1 } };
   const selected = plans[plan];
@@ -104,7 +117,44 @@ export async function activateSubscription(user, plan, paymentId, amount) {
     amount: amount ?? selected.amount, currency: "NGN", started_at: now.toISOString(), expires_at: expires.toISOString(), updated_at: now.toISOString()
   }).select("id,plan,status,amount,currency,started_at,expires_at,payment_id").single();
   if (error) throw error;
+  await sendAccountNotification(
+    user.id,
+    "Game API subscription activated",
+    "Plan: " + data.plan + " · Amount: " + data.amount + " " + data.currency + " · Payment ID: " + (data.payment_id || "N/A") + " · Started: " + data.started_at + " · Expires: " + (data.expires_at || "No expiry"),
+    "https://game-api.online/pricing.html",
+    "subscription-activated"
+  );
   return data;
+}
+
+export async function cancelSubscription(user) {
+  await ensureCustomer(user);
+  const { data: current, error } = await supabase.from("subscriptions")
+    .select("id,plan,status,amount,currency,started_at,expires_at,payment_id")
+    .eq("customer_id", user.id).eq("status", "active")
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  if (!current || !["standard", "premium"].includes(current.plan)) {
+    const error = new Error(current?.plan === "starter" ? "Starter is the fallback plan and cannot be cancelled." : "No cancellable paid subscription found.");
+    error.status = 400;
+    throw error;
+  }
+  const now = new Date().toISOString();
+  const { error: cancelError } = await supabase.from("subscriptions").update({ status: "cancelled", updated_at: now }).eq("id", current.id);
+  if (cancelError) throw cancelError;
+  const { data: fallback, error: fallbackError } = await supabase.from("subscriptions").insert({
+    customer_id: user.id, plan: "starter", status: "active", amount: 0, currency: "NGN",
+    started_at: now, expires_at: null, payment_id: "downgrade-after-cancel", updated_at: now
+  }).select("id,plan,status,amount,currency,started_at,expires_at,payment_id").single();
+  if (fallbackError) throw fallbackError;
+  await sendAccountNotification(
+    user.id,
+    "Game API subscription cancelled",
+    "Cancelled plan: " + current.plan + " · Original amount: " + current.amount + " " + current.currency + " · Payment ID: " + (current.payment_id || "N/A") + " · Cancelled: " + now + " · New plan: Starter",
+    "https://game-api.online/pricing.html",
+    "subscription-cancelled"
+  );
+  return { cancelled: current, subscription: fallback };
 }
 
 export async function consumeApiLimit(keyId, limit) {
