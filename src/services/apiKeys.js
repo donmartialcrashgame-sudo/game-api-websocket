@@ -47,7 +47,7 @@ export async function createApiKey(user, name = "Untitled key") {
     key_hash: hashApiKey(apiKey), key_last4: last4(apiKey), encrypted_secret: encryptApiKey(apiKey), status: "active", plan
   }).select("id,customer_id,name,key_prefix,key_last4,status,last_used_at,created_at,expires_at,plan").single();
   if (error) throw error;
-  return { data, secret: apiKey };
+  await sendAccountTemplateEmail(user, "apiKeyCreated", {}, [\n    { label: "Key name", value: data.name },\n    { label: "Key", value: data.key_prefix + "_••••" + data.key_last4 },\n    { label: "Plan", value: plan },\n    { label: "Created", value: data.created_at }\n  ]);\n  return { data, secret: apiKey };
 }
 
 export async function listApiKeys(user) {
