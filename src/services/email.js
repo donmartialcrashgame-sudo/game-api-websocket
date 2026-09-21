@@ -2,17 +2,13 @@ import { config } from "../config.js";
 
 const HOSTINGER_ME_URL = "https://api.hostinger.com/api/v1/me";
 
+let mailboxResourceIdPromise = null;
+
 function requireMailConfig() {
   if (!config.hostingerApiKey) {
     const error = new Error("Hostinger mail service is not configured");
     error.status = 503;
     error.code = "HOSTINGER_MAIL_NOT_CONFIGURED";
-    throw error;
-  }
-  if (!config.hostingerMailboxResourceId) {
-    const error = new Error("Hostinger managed mailbox resource ID is not configured");
-    error.status = 503;
-    error.code = "HOSTINGER_MAILBOX_NOT_CONFIGURED";
     throw error;
   }
 }
@@ -53,8 +49,40 @@ export async function getHostingerMailboxes() {
   return hostingerRequest(HOSTINGER_ME_URL);
 }
 
-export async function sendEmail({ to, subject, text, html, replyTo }) {
+async function getSenderMailboxResourceId() {
   requireMailConfig();
+
+  if (config.hostingerMailboxResourceId) {
+    return config.hostingerMailboxResourceId;
+  }
+
+  if (!mailboxResourceIdPromise) {
+    mailboxResourceIdPromise = (async () => {
+      const result = await getHostingerMailboxes();
+      const mailboxes = result?.data?.mailboxes || [];
+      const preferred =
+        mailboxes.find(mailbox => mailbox.address?.toLowerCase() === "info@game-api.online") ||
+        mailboxes[0];
+
+      if (!preferred?.resourceId) {
+        const error = new Error("No Hostinger sending mailbox is available");
+        error.status = 503;
+        error.code = "HOSTINGER_MAILBOX_NOT_FOUND";
+        throw error;
+      }
+
+      return preferred.resourceId;
+    })().catch(error => {
+      mailboxResourceIdPromise = null;
+      throw error;
+    });
+  }
+
+  return mailboxResourceIdPromise;
+}
+
+export async function sendEmail({ to, subject, text, html, replyTo }) {
+  const mailboxResourceId = await getSenderMailboxResourceId();
 
   const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
   if (!recipients.length) {
@@ -75,7 +103,7 @@ export async function sendEmail({ to, subject, text, html, replyTo }) {
 
   return hostingerRequest(
     "https://api.hostinger.com/api/v1/mailboxes/" +
-    encodeURIComponent(config.hostingerMailboxResourceId) +
+    encodeURIComponent(mailboxResourceId) +
     "/send",
     {
       method: "POST",
