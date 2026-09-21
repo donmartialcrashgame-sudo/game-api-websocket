@@ -16,6 +16,13 @@ export const EMAIL_TEMPLATES = {
     actionLabel: "Open Game API",
     footer: "Game API · Welcome"
   },
+  loginAlert: {
+    subject: "New sign-in to your Game API account",
+    from: "security",
+    intro: "A successful sign-in to your Game API account was detected. If this was not you, secure your account immediately.",
+    actionLabel: "Review account security",
+    footer: "Game API · Sign-in security alert"
+  },
   emailVerification: {
     subject: "Verify your Game API email address",
     from: "security",
