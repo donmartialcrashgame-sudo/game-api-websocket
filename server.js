@@ -5,6 +5,7 @@ import { config } from "./src/config.js";
 import { apiKeyRouter } from "./src/routes/apiKeys.js";
 import { gameRouter } from "./src/routes/game.js";
 import { paymentRouter } from "./src/routes/payments.js";
+import { mailRouter } from "./src/routes/mail.js";
 import { attachRealtime } from "./src/websocket/realtime.js";
 
 const app = express();
@@ -55,6 +56,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/keys", apiKeyRouter);
 app.use("/api/payments", paymentRouter);
+app.use("/api/mail", mailRouter);
 app.use("/api/v1", gameRouter);
 
 attachRealtime(server);
