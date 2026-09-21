@@ -34,19 +34,18 @@ mailRouter.post("/contact", async (req, res) => {
 
     const sender = req.user.email || "Authenticated Game API user";
 
-    const template = type === "support" ? "supportReceived" : type === "developers" ? "developerMessage" : "generalInformation";\n\n    const result = await sendGameApiEmail({\n      template,
+    const template = type === "support" ? "supportReceived" : type === "developers" ? "developerMessage" : "generalInformation";
+
+    const result = await sendGameApiEmail({
+      template,
       to: requestedRecipient,
       subject,
-      intro: "A message was submitted through the Game API account portal.",
       details: [
         { label: "From", value: sender },
         { label: "User ID", value: req.user.id },
         { label: "Route", value: requestedRecipient },
         { label: "Message", value: message }
       ],
-      actionUrl: "https://game-api.online/dashboard.html",
-      actionLabel: "Open Game API",
-      footer: "Game API · Automated account message"
     });
 
     res.status(202).json({ success: true, routed_to: requestedRecipient, result });
