@@ -47,7 +47,13 @@ export async function createApiKey(user, name = "Untitled key") {
     key_hash: hashApiKey(apiKey), key_last4: last4(apiKey), encrypted_secret: encryptApiKey(apiKey), status: "active", plan
   }).select("id,customer_id,name,key_prefix,key_last4,status,last_used_at,created_at,expires_at,plan").single();
   if (error) throw error;
-  await sendAccountTemplateEmail(user, "apiKeyCreated", {}, [\n    { label: "Key name", value: data.name },\n    { label: "Key", value: data.key_prefix + "_••••" + data.key_last4 },\n    { label: "Plan", value: plan },\n    { label: "Created", value: data.created_at }\n  ]);\n  return { data, secret: apiKey };
+  await sendAccountTemplateEmail(user, "apiKeyCreated", {}, [
+    { label: "Key name", value: data.name },
+    { label: "Key", value: data.key_prefix + "_••••" + data.key_last4 },
+    { label: "Plan", value: plan },
+    { label: "Created", value: data.created_at }
+  ]);
+  return { data, secret: apiKey };
 }
 
 export async function listApiKeys(user) {
@@ -75,8 +81,16 @@ export async function getApiKeySecret(user, id) {
 }
 
 export async function revokeApiKey(user, id) {
-  const { data, error } = await supabase.from("api_keys").update({ status: "revoked" }).eq("id", id).eq("customer_id", user.id).eq("status", "active").select("id,name,status").maybeSingle();
+  const { data, error } = await supabase.from("api_keys").update({ status: "revoked" }).eq("id", id).eq("customer_id", user.id).eq("status", "active").select("id,name,key_prefix,key_last4,status").maybeSingle();
   if (error) throw error;
+  if (data) {
+    await sendAccountTemplateEmail(user, "apiKeyRevoked", {}, [
+      { label: "Key name", value: data.name },
+      { label: "Key", value: data.key_prefix + "_••••" + data.key_last4 },
+      { label: "Status", value: data.status },
+      { label: "Revoked", value: new Date().toISOString() }
+    ]);
+  }
   return data;
 }
 
