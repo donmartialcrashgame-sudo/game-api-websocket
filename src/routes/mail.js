@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireUser } from "../middleware/auth.js";
-import { sendTemplateEmail } from "../services/email.js";
+import { sendGameApiEmail } from "../services/emailEvents.js";
 
 export const mailRouter = Router();
 mailRouter.use(requireUser);
@@ -34,7 +34,7 @@ mailRouter.post("/contact", async (req, res) => {
 
     const sender = req.user.email || "Authenticated Game API user";
 
-    const result = await sendTemplateEmail({
+    const template = type === "support" ? "supportReceived" : type === "developers" ? "developerMessage" : "generalInformation";\n\n    const result = await sendGameApiEmail({\n      template,
       to: requestedRecipient,
       subject,
       intro: "A message was submitted through the Game API account portal.",
