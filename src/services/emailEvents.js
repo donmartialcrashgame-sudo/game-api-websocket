@@ -37,7 +37,7 @@ export async function sendAccountTemplateEmail(user, template, variables = {}, d
 }
 
 export function getEmailRoute(template) {
-  const security = new Set(["emailVerification", "passwordReset", "mfaEnabled", "mfaRemoved", "apiKeyRevoked"]);
+  const security = new Set(["loginAlert", "emailVerification", "passwordReset", "mfaEnabled", "mfaRemoved", "apiKeyRevoked"]);
   const billing = new Set(["subscriptionActivated", "subscriptionCancelled", "subscriptionExpiring", "paymentReceived", "paymentFailed"]);
   const developers = new Set(["apiKeyCreated", "developerMessage"]);
   const support = new Set(["supportReceived"]);
@@ -46,4 +46,8 @@ export function getEmailRoute(template) {
   if (developers.has(template)) return getTemplateSender("developers");
   if (support.has(template)) return getTemplateSender("support");
   return getTemplateSender("info");
+}
+
+export async function sendLoginAlert(user, details = []) {
+  return sendAccountTemplateEmail(user, "loginAlert", {}, details);
 }
