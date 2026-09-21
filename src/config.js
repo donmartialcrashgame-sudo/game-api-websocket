@@ -26,6 +26,6 @@ if (!config.supabaseUrl || !config.supabaseSecretKey) {
 if (!config.hostingerApiKey) {
   console.warn("HOSTINGER_API_KEY is not configured; email sending is disabled.");
 }
-if (!config.hostingerMailboxResourceId) {
-  console.warn("HOSTINGER_MAILBOX_RESOURCE_ID is not configured; email sending is disabled.");
+if (config.hostingerApiKey && !config.hostingerMailboxResourceId) {
+  console.warn("HOSTINGER_MAILBOX_RESOURCE_ID is not configured; email service will auto-discover an available Hostinger mailbox.");
 }
