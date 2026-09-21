@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { supabase } from "../lib/supabase.js";
 import { generateApiKey, hashApiKey, last4, encryptApiKey, decryptApiKey } from "../lib/crypto.js";
-import { sendTemplateEmail } from "./email.js";
+import { sendAccountTemplateEmail } from "./emailEvents.js";
 
 export const PLAN_LIMITS = { free: 100, starter: null, standard: 200000, premium: 1000000 };
 export const PLAN_KEY_LIMITS = { free: 2, starter: 2, standard: 10, premium: 50 };
@@ -101,21 +101,8 @@ async function sendAccountNotification(userId, title, message, url, tag) {
   }
 }
 
-async function sendAccountEmail(user, subject, intro, details) {
-  try {
-    if (!user?.email || !config.hostingerApiKey) return;
-    await sendTemplateEmail({
-      to: user.email,
-      subject,
-      intro,
-      details,
-      actionUrl: "https://game-api.online/dashboard.html",
-      actionLabel: "Open Game API",
-      footer: "Game API · Account notification"
-    });
-  } catch (error) {
-    console.error("ACCOUNT EMAIL ERROR:", error?.message || error);
-  }
+async function sendAccountEmail(user, template, details, variables = {}) {
+  return sendAccountTemplateEmail(user, template, variables, details);
 }
 
 export async function activateSubscription(user, plan, paymentId, amount) {
@@ -138,7 +125,7 @@ export async function activateSubscription(user, plan, paymentId, amount) {
 
   const notificationMessage = "Plan: " + data.plan + " · Amount: " + data.amount + " " + data.currency + " · Payment ID: " + (data.payment_id || "N/A") + " · Started: " + data.started_at + " · Expires: " + (data.expires_at || "No expiry");
   await sendAccountNotification(user.id, "Game API subscription activated", notificationMessage, "https://game-api.online/pricing.html", "subscription-activated");
-  await sendAccountEmail(user, "Game API subscription activated", "Your Game API subscription has been activated successfully.", [
+  await sendAccountEmail(user, "subscriptionActivated", [
     { label: "Plan", value: data.plan },
     { label: "Amount", value: data.amount + " " + data.currency },
     { label: "Payment ID", value: data.payment_id || "N/A" },
@@ -172,7 +159,7 @@ export async function cancelSubscription(user) {
 
   const notificationMessage = "Cancelled plan: " + current.plan + " · Original amount: " + current.amount + " " + current.currency + " · Payment ID: " + (current.payment_id || "N/A") + " · Cancelled: " + now + " · New plan: Starter";
   await sendAccountNotification(user.id, "Game API subscription cancelled", notificationMessage, "https://game-api.online/pricing.html", "subscription-cancelled");
-  await sendAccountEmail(user, "Game API subscription cancelled", "Your paid Game API subscription has been cancelled and your account has been moved to the Starter plan.", [
+  await sendAccountEmail(user, "subscriptionCancelled", [
     { label: "Cancelled plan", value: current.plan },
     { label: "Original amount", value: current.amount + " " + current.currency },
     { label: "Payment ID", value: current.payment_id || "N/A" },
