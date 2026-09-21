@@ -119,7 +119,8 @@ export async function sendTemplateEmail({
   details = [],
   actionUrl,
   actionLabel,
-  footer = "Game API"
+  footer = "Game API",
+  replyTo
 }) {
   const rows = details
     .filter(item => item && item.label)
@@ -157,7 +158,7 @@ export async function sendTemplateEmail({
     footer
   ];
 
-  return sendEmail({ to, subject, text: textLines.join("\n"), html });
+  return sendEmail({ to, subject, text: textLines.join("\n"), html, replyTo });
 }
 
 function escapeHtml(value) {
