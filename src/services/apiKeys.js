@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { supabase } from "../lib/supabase.js";
 import { generateApiKey, hashApiKey, last4, encryptApiKey, decryptApiKey } from "../lib/crypto.js";
+import { sendTemplateEmail } from "./email.js";
 
 export const PLAN_LIMITS = { free: 100, starter: null, standard: 200000, premium: 1000000 };
 export const PLAN_KEY_LIMITS = { free: 2, starter: 2, standard: 10, premium: 50 };
@@ -100,6 +101,23 @@ async function sendAccountNotification(userId, title, message, url, tag) {
   }
 }
 
+async function sendAccountEmail(user, subject, intro, details) {
+  try {
+    if (!user?.email || !config.hostingerApiKey) return;
+    await sendTemplateEmail({
+      to: user.email,
+      subject,
+      intro,
+      details,
+      actionUrl: "https://game-api.online/dashboard.html",
+      actionLabel: "Open Game API",
+      footer: "Game API · Account notification"
+    });
+  } catch (error) {
+    console.error("ACCOUNT EMAIL ERROR:", error?.message || error);
+  }
+}
+
 export async function activateSubscription(user, plan, paymentId, amount) {
   const plans = { starter: { amount: 4000, months: 3 }, standard: { amount: 25000, months: 1 }, premium: { amount: 50000, months: 1 } };
   const selected = plans[plan];
@@ -117,13 +135,17 @@ export async function activateSubscription(user, plan, paymentId, amount) {
     amount: amount ?? selected.amount, currency: "NGN", started_at: now.toISOString(), expires_at: expires.toISOString(), updated_at: now.toISOString()
   }).select("id,plan,status,amount,currency,started_at,expires_at,payment_id").single();
   if (error) throw error;
-  await sendAccountNotification(
-    user.id,
-    "Game API subscription activated",
-    "Plan: " + data.plan + " · Amount: " + data.amount + " " + data.currency + " · Payment ID: " + (data.payment_id || "N/A") + " · Started: " + data.started_at + " · Expires: " + (data.expires_at || "No expiry"),
-    "https://game-api.online/pricing.html",
-    "subscription-activated"
-  );
+
+  const notificationMessage = "Plan: " + data.plan + " · Amount: " + data.amount + " " + data.currency + " · Payment ID: " + (data.payment_id || "N/A") + " · Started: " + data.started_at + " · Expires: " + (data.expires_at || "No expiry");
+  await sendAccountNotification(user.id, "Game API subscription activated", notificationMessage, "https://game-api.online/pricing.html", "subscription-activated");
+  await sendAccountEmail(user, "Game API subscription activated", "Your Game API subscription has been activated successfully.", [
+    { label: "Plan", value: data.plan },
+    { label: "Amount", value: data.amount + " " + data.currency },
+    { label: "Payment ID", value: data.payment_id || "N/A" },
+    { label: "Started", value: data.started_at },
+    { label: "Expires", value: data.expires_at || "No expiry" }
+  ]);
+
   return data;
 }
 
@@ -147,13 +169,17 @@ export async function cancelSubscription(user) {
     started_at: now, expires_at: null, payment_id: "downgrade-after-cancel", updated_at: now
   }).select("id,plan,status,amount,currency,started_at,expires_at,payment_id").single();
   if (fallbackError) throw fallbackError;
-  await sendAccountNotification(
-    user.id,
-    "Game API subscription cancelled",
-    "Cancelled plan: " + current.plan + " · Original amount: " + current.amount + " " + current.currency + " · Payment ID: " + (current.payment_id || "N/A") + " · Cancelled: " + now + " · New plan: Starter",
-    "https://game-api.online/pricing.html",
-    "subscription-cancelled"
-  );
+
+  const notificationMessage = "Cancelled plan: " + current.plan + " · Original amount: " + current.amount + " " + current.currency + " · Payment ID: " + (current.payment_id || "N/A") + " · Cancelled: " + now + " · New plan: Starter";
+  await sendAccountNotification(user.id, "Game API subscription cancelled", notificationMessage, "https://game-api.online/pricing.html", "subscription-cancelled");
+  await sendAccountEmail(user, "Game API subscription cancelled", "Your paid Game API subscription has been cancelled and your account has been moved to the Starter plan.", [
+    { label: "Cancelled plan", value: current.plan },
+    { label: "Original amount", value: current.amount + " " + current.currency },
+    { label: "Payment ID", value: current.payment_id || "N/A" },
+    { label: "Cancelled", value: now },
+    { label: "New plan", value: "Starter" }
+  ]);
+
   return { cancelled: current, subscription: fallback };
 }
 
