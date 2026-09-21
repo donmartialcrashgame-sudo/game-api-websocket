@@ -14,9 +14,18 @@ export const config = {
   keyLastUsedUpdateMs: Number(process.env.KEY_LAST_USED_UPDATE_MS || 60000),
   wsRequireAuth: String(process.env.WS_REQUIRE_AUTH || "false").toLowerCase() === "true",
   demoCrashSimulator: String(process.env.DEMO_CRASH_SIMULATOR || "true").toLowerCase() === "true",
-  demoPaymentActivation: String(process.env.DEMO_PAYMENT_ACTIVATION || "true").toLowerCase() === "true"
+  demoPaymentActivation: String(process.env.DEMO_PAYMENT_ACTIVATION || "true").toLowerCase() === "true",
+  hostingerApiKey: process.env.HOSTINGER_API_KEY || "",
+  hostingerMailboxResourceId: process.env.HOSTINGER_MAILBOX_RESOURCE_ID || "",
+  hostingerDisplayName: process.env.HOSTINGER_DISPLAY_NAME || "Game API"
 };
 
 if (!config.supabaseUrl || !config.supabaseSecretKey) {
   console.warn("SUPABASE_URL and SUPABASE_SECRET_KEY must be configured before protected routes are used.");
+}
+if (!config.hostingerApiKey) {
+  console.warn("HOSTINGER_API_KEY is not configured; email sending is disabled.");
+}
+if (!config.hostingerMailboxResourceId) {
+  console.warn("HOSTINGER_MAILBOX_RESOURCE_ID is not configured; email sending is disabled.");
 }
