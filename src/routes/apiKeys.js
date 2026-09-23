@@ -7,7 +7,7 @@ apiKeyRouter.use(requireUser);
 
 apiKeyRouter.get("/", async (req, res) => {
   try {
-    await ensureCustomer(req.user); const keys = await listApiKeys(req.user); const plan = await getCustomerPlan(req.user.id);
+    await ensureCustomer(req.user); const keys = await listApiKeys(req.user); const plan = await getCustomerPlan(req.user);
     res.json({ keys, plan, monthly_limit: getPlanLimit(plan), monthly_limit_unit: "requests_per_key", max_active_keys: getPlanKeyLimit(plan) });
   } catch (error) {
     console.error("LIST API KEYS ERROR:", error); res.status(500).json({ error: "Could not list API keys", details: error?.message || "Unknown error" });
