@@ -23,7 +23,6 @@ const corsOptions = {
     const allowedOrigins = new Set([
       "https://game-api.online",
       "https://www.game-api.online",
-      "https://developers-game-api-online.onrender.com",
       "https://developers.game-api.online",
       ...config.allowedOrigins.filter((value) => value !== "*")
     ]);
