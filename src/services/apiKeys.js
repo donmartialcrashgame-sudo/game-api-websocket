@@ -65,14 +65,66 @@ async function resolveCustomerContext(user) {
 
   // Prefer the customer record that already owns an API key, so existing
   // credentials remain the shared credentials when identities are unified.
-  const { data: existingKeys, error: keyLookupError } = await supabase
-    .from("api_keys")
-    .select("customer_id,created_at")
-    .in("customer_id", customerIds)
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const findKeysForCustomers = async (ids) => {
+    const { data, error } = await supabase
+      .from("api_keys")
+      .select("customer_id,created_at")
+      .in("customer_id", ids)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (error) throw error;
+    return data || [];
+  };
 
-  if (keyLookupError) throw keyLookupError;
+  let existingKeys = await findKeysForCustomers(customerIds);
+
+  // Some older Game API records may point to a customer row whose id is not
+  // the Supabase Auth user UUID. Resolve those legacy customer records by
+  // looking for a customer row that explicitly references one of the
+  // authenticated user ids or the verified email.
+  if (!existingKeys.length) {
+    const { data: allCustomers, error: customerScanError } = await supabase
+      .from("customers")
+      .select("*")
+      .limit(5000);
+
+    if (customerScanError) throw customerScanError;
+
+    const relatedIds = new Set(customerIds);
+    for (const customer of allCustomers || []) {
+      if (!customer?.id) continue;
+
+      let linked = false;
+      for (const [field, value] of Object.entries(customer)) {
+        const fieldName = String(field).toLowerCase();
+        if (typeof value === "string") {
+          if (
+            ["user_id", "auth_user_id", "owner_id", "auth_id", "user_uuid"].includes(fieldName) &&
+            customerIds.includes(value)
+          ) {
+            linked = true;
+            break;
+          }
+
+          if (
+            fieldName.includes("email") &&
+            normalizeEmail(value) === email
+          ) {
+            linked = true;
+            break;
+          }
+        }
+      }
+
+      if (linked) relatedIds.add(customer.id);
+    }
+
+    const expandedCustomerIds = [...relatedIds];
+    if (expandedCustomerIds.length !== customerIds.length) {
+      customerIds.splice(0, customerIds.length, ...expandedCustomerIds);
+      existingKeys = await findKeysForCustomers(customerIds);
+    }
+  }
 
   const existingCustomerId = existingKeys?.[0]?.customer_id;
   if (existingCustomerId) {
