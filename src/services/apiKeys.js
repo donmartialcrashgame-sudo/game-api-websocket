@@ -52,10 +52,14 @@ async function resolveCustomerContext(user) {
     return { customerId: user.id, customerIds: [user.id], users: [user] };
   }
 
+  const currentVerified = Boolean(user?.email_confirmed_at || user?.confirmed_at);
   const matched = await findUsersByEmail(email);
-  const users = matched.length ? matched : [user];
+
+  // Only confirmed identities may share an email-based customer context.
+  // If this session is unconfirmed, keep it isolated from verified accounts.
+  let users = matched.length ? matched : (currentVerified ? [user] : [user]);
   const currentIsIncluded = users.some((candidate) => candidate.id === user.id);
-  if (!currentIsIncluded) users.push(user);
+  if (!currentIsIncluded && currentVerified) users.push(user);
 
   const customerIds = [...new Set(users.map((candidate) => candidate.id).filter(Boolean))];
 
