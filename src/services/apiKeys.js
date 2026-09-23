@@ -57,7 +57,7 @@ async function resolveCustomerContext(user) {
 
   // Only confirmed identities may share an email-based customer context.
   // If this session is unconfirmed, keep it isolated from verified accounts.
-  let users = matched.length ? matched : (currentVerified ? [user] : [user]);
+  let users = matched.length ? matched : [user];
   const currentIsIncluded = users.some((candidate) => candidate.id === user.id);
   if (!currentIsIncluded && currentVerified) users.push(user);
 
