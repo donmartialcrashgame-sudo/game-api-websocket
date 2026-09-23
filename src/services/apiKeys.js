@@ -323,7 +323,6 @@ export async function cancelSubscription(user) {
   const current = (candidates || [])
     .filter((subscription) => ["standard", "premium"].includes(subscription.plan))
     .sort((a, b) => (PLAN_RANK[b.plan] || 0) - (PLAN_RANK[a.plan] || 0))[0];
-    .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   if (!current || !["standard", "premium"].includes(current.plan)) {
     const error = new Error(current?.plan === "starter" ? "Starter is the fallback plan and cannot be cancelled." : "No cancellable paid subscription found.");
