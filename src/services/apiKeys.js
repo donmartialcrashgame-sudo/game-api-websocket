@@ -9,41 +9,172 @@ export const PLAN_KEY_LIMITS = { free: 2, starter: 2, standard: 10, premium: 50 
 export function getPlanLimit(plan) { return Object.prototype.hasOwnProperty.call(PLAN_LIMITS, plan) ? PLAN_LIMITS[plan] : PLAN_LIMITS.free; }
 export function getPlanKeyLimit(plan) { return PLAN_KEY_LIMITS[plan] || PLAN_KEY_LIMITS.free; }
 
+const PLAN_RANK = { free: 0, starter: 1, standard: 2, premium: 3 };
+const relatedUsersCache = new Map();
+const RELATED_USERS_CACHE_MS = 60_000;
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+async function findUsersByEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return [];
+
+  const cached = relatedUsersCache.get(normalized);
+  if (cached && (Date.now() - cached.time) < RELATED_USERS_CACHE_MS) return cached.users;
+
+  const users = [];
+  let page = 1;
+  const perPage = 1000;
+
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+
+    const pageUsers = data?.users || [];
+    users.push(...pageUsers.filter((candidate) => {
+      const candidateEmail = normalizeEmail(candidate.email);
+      return candidateEmail === normalized && Boolean(candidate.email_confirmed_at || candidate.confirmed_at);
+    }));
+
+    if (pageUsers.length < perPage) break;
+    page += 1;
+  }
+
+  relatedUsersCache.set(normalized, { time: Date.now(), users });
+  return users;
+}
+
+async function resolveCustomerContext(user) {
+  const email = normalizeEmail(user?.email);
+  if (!email) {
+    return { customerId: user.id, customerIds: [user.id], users: [user] };
+  }
+
+  const matched = await findUsersByEmail(email);
+  const users = matched.length ? matched : [user];
+  const currentIsIncluded = users.some((candidate) => candidate.id === user.id);
+  if (!currentIsIncluded) users.push(user);
+
+  const customerIds = [...new Set(users.map((candidate) => candidate.id).filter(Boolean))];
+
+  // Prefer the customer record that already owns an API key, so existing
+  // credentials remain the shared credentials when identities are unified.
+  const { data: existingKeys, error: keyLookupError } = await supabase
+    .from("api_keys")
+    .select("customer_id,created_at")
+    .in("customer_id", customerIds)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (keyLookupError) throw keyLookupError;
+
+  const existingCustomerId = existingKeys?.[0]?.customer_id;
+  if (existingCustomerId) {
+    return { customerId: existingCustomerId, customerIds, users };
+  }
+
+  // Otherwise prefer an existing customer row, falling back to the current
+  // authenticated user's UUID.
+  const { data: customers, error: customerLookupError } = await supabase
+    .from("customers")
+    .select("id")
+    .in("id", customerIds)
+    .limit(1);
+
+  if (customerLookupError) throw customerLookupError;
+
+  return {
+    customerId: customers?.[0]?.id || user.id,
+    customerIds,
+    users
+  };
+}
+
+async function resolveCustomerId(user) {
+  const context = await resolveCustomerContext(user);
+  return context.customerId;
+}
+
 function monthStart() {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
 }
 
 export async function ensureCustomer(user) {
-  const { error } = await supabase.from("customers").upsert({ id: user.id, display_name: user.user_metadata?.full_name || user.email || "Game API Customer", status: "active", updated_at: new Date().toISOString() }, { onConflict: "id" });
+  const context = await resolveCustomerContext(user);
+  const displayName = user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Game API Customer";
+  const { error } = await supabase.from("customers").upsert({
+    id: context.customerId,
+    display_name: displayName,
+    status: "active",
+    updated_at: new Date().toISOString()
+  }, { onConflict: "id" });
   if (error) throw error;
-  const { data, error: readError } = await supabase.from("customers").select("id,display_name,status").eq("id", user.id).single();
+
+  const { data, error: readError } = await supabase
+    .from("customers")
+    .select("id,display_name,status")
+    .eq("id", context.customerId)
+    .single();
   if (readError) throw readError;
   return data;
 }
 
-export async function getCustomerPlan(userId) {
-  const { data, error } = await supabase.from("subscriptions").select("id,plan,status,expires_at,started_at").eq("customer_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(1).maybeSingle();
+export async function getCustomerPlan(userOrId) {
+  const context = typeof userOrId === "object"
+    ? await resolveCustomerContext(userOrId)
+    : { customerId: userOrId, customerIds: [userOrId] };
+
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("id,customer_id,plan,status,expires_at,started_at,created_at")
+    .in("customer_id", context.customerIds)
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
   if (error) throw error;
-  if (!data) return "free";
-  if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) {
-    await supabase.from("subscriptions").update({ status: "expired", updated_at: new Date().toISOString() }).eq("customer_id", userId).eq("status", "active").eq("id", data.id);
-    return "free";
+
+  const now = Date.now();
+  const active = (data || []).filter((subscription) => {
+    if (subscription.expires_at && new Date(subscription.expires_at).getTime() <= now) return false;
+    return ["free", "starter", "standard", "premium"].includes(subscription.plan);
+  });
+
+  const expiredIds = (data || [])
+    .filter((subscription) => subscription.expires_at && new Date(subscription.expires_at).getTime() <= now)
+    .map((subscription) => subscription.id);
+
+  if (expiredIds.length) {
+    await supabase.from("subscriptions")
+      .update({ status: "expired", updated_at: new Date().toISOString() })
+      .in("id", expiredIds);
   }
-  return ["free", "starter", "standard", "premium"].includes(data.plan) ? data.plan : "free";
+
+  if (!active.length) return "free";
+
+  return active
+    .sort((a, b) => (PLAN_RANK[b.plan] || 0) - (PLAN_RANK[a.plan] || 0))[0]
+    .plan;
 }
 
 export async function createApiKey(user, name = "Untitled key") {
+  const context = await resolveCustomerContext(user);
   await ensureCustomer(user);
-  const plan = await getCustomerPlan(user.id);
-  const { count, error: countError } = await supabase.from("api_keys").select("id", { count: "exact", head: true }).eq("customer_id", user.id).eq("status", "active");
+  const plan = await getCustomerPlan(user);
+  const { count, error: countError } = await supabase
+    .from("api_keys")
+    .select("id", { count: "exact", head: true })
+    .in("customer_id", context.customerIds)
+    .eq("status", "active");
   if (countError) throw countError;
   if ((count || 0) >= getPlanKeyLimit(plan)) {
     const error = new Error("API key limit reached for your plan"); error.status = 403; error.code = "API_KEY_LIMIT_REACHED"; throw error;
   }
   const apiKey = generateApiKey();
   const { data, error } = await supabase.from("api_keys").insert({
-    customer_id: user.id, name: String(name).trim().slice(0, 80) || "Untitled key", key_prefix: config.apiKeyPrefix,
+    customer_id: context.customerId, name: String(name).trim().slice(0, 80) || "Untitled key", key_prefix: config.apiKeyPrefix,
     key_hash: hashApiKey(apiKey), key_last4: last4(apiKey), encrypted_secret: encryptApiKey(apiKey), status: "active", plan
   }).select("id,customer_id,name,key_prefix,key_last4,status,last_used_at,created_at,expires_at,plan").single();
   if (error) throw error;
@@ -57,11 +188,16 @@ export async function createApiKey(user, name = "Untitled key") {
 }
 
 export async function listApiKeys(user) {
-  const { data, error } = await supabase.from("api_keys").select("id,name,key_prefix,key_last4,status,last_used_at,created_at,expires_at,plan").eq("customer_id", user.id).order("created_at", { ascending: false });
+  const context = await resolveCustomerContext(user);
+  const { data, error } = await supabase
+    .from("api_keys")
+    .select("id,customer_id,name,key_prefix,key_last4,status,last_used_at,created_at,expires_at,plan")
+    .in("customer_id", context.customerIds)
+    .order("created_at", { ascending: false });
   if (error) throw error;
   const keys = data || [];
   if (!keys.length) return [];
-  const currentPlan = await getCustomerPlan(user.id);
+  const currentPlan = await getCustomerPlan(user);
   const ids = keys.map(k => k.id);
   const { data: usage, error: usageError } = await supabase.from("api_usage_monthly").select("api_key_id,request_count,period_start").in("api_key_id", ids).eq("period_start", monthStart());
   if (usageError) throw usageError;
@@ -73,7 +209,13 @@ export async function listApiKeys(user) {
 }
 
 export async function getApiKeySecret(user, id) {
-  const { data, error } = await supabase.from("api_keys").select("id,encrypted_secret,status").eq("id", id).eq("customer_id", user.id).maybeSingle();
+  const context = await resolveCustomerContext(user);
+  const { data, error } = await supabase
+    .from("api_keys")
+    .select("id,encrypted_secret,status")
+    .eq("id", id)
+    .in("customer_id", context.customerIds)
+    .maybeSingle();
   if (error) throw error;
   if (!data || data.status !== "active") return null;
   if (!data.encrypted_secret) return null;
@@ -81,7 +223,15 @@ export async function getApiKeySecret(user, id) {
 }
 
 export async function revokeApiKey(user, id) {
-  const { data, error } = await supabase.from("api_keys").update({ status: "revoked" }).eq("id", id).eq("customer_id", user.id).eq("status", "active").select("id,name,key_prefix,key_last4,status").maybeSingle();
+  const context = await resolveCustomerContext(user);
+  const { data, error } = await supabase
+    .from("api_keys")
+    .update({ status: "revoked" })
+    .eq("id", id)
+    .in("customer_id", context.customerIds)
+    .eq("status", "active")
+    .select("id,name,key_prefix,key_last4,status")
+    .maybeSingle();
   if (error) throw error;
   if (data) {
     await sendAccountTemplateEmail(user, "apiKeyRevoked", {}, [
@@ -124,15 +274,24 @@ export async function activateSubscription(user, plan, paymentId, amount) {
   const selected = plans[plan];
   if (!selected) { const error = new Error("Invalid paid plan"); error.status = 400; throw error; }
   await ensureCustomer(user);
+  const customerId = await resolveCustomerId(user);
   const now = new Date();
   const expires = new Date(now);
   expires.setMonth(expires.getMonth() + selected.months);
-  const { data: existing } = await supabase.from("subscriptions").select("id").eq("customer_id", user.id).eq("status", "active").maybeSingle();
+  const context = await resolveCustomerContext(user);
+  const { data: existing } = await supabase
+    .from("subscriptions")
+    .select("id")
+    .in("customer_id", context.customerIds)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (existing) {
     await supabase.from("subscriptions").update({ status: "expired", updated_at: now.toISOString() }).eq("id", existing.id);
   }
   const { data, error } = await supabase.from("subscriptions").insert({
-    customer_id: user.id, plan, status: "active", payment_id: String(paymentId || "").slice(0, 200) || null,
+    customer_id: customerId, plan, status: "active", payment_id: String(paymentId || "").slice(0, 200) || null,
     amount: amount ?? selected.amount, currency: "NGN", started_at: now.toISOString(), expires_at: expires.toISOString(), updated_at: now.toISOString()
   }).select("id,plan,status,amount,currency,started_at,expires_at,payment_id").single();
   if (error) throw error;
@@ -152,9 +311,14 @@ export async function activateSubscription(user, plan, paymentId, amount) {
 
 export async function cancelSubscription(user) {
   await ensureCustomer(user);
-  const { data: current, error } = await supabase.from("subscriptions")
-    .select("id,plan,status,amount,currency,started_at,expires_at,payment_id")
-    .eq("customer_id", user.id).eq("status", "active")
+  const context = await resolveCustomerContext(user);
+  const { data: candidates, error } = await supabase.from("subscriptions")
+    .select("id,customer_id,plan,status,amount,currency,started_at,expires_at,payment_id,created_at")
+    .in("customer_id", context.customerIds).eq("status", "active")
+    .order("created_at", { ascending: false });
+  const current = (candidates || [])
+    .filter((subscription) => ["standard", "premium"].includes(subscription.plan))
+    .sort((a, b) => (PLAN_RANK[b.plan] || 0) - (PLAN_RANK[a.plan] || 0))[0];
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   if (!current || !["standard", "premium"].includes(current.plan)) {
@@ -166,7 +330,7 @@ export async function cancelSubscription(user) {
   const { error: cancelError } = await supabase.from("subscriptions").update({ status: "cancelled", updated_at: now }).eq("id", current.id);
   if (cancelError) throw cancelError;
   const { data: fallback, error: fallbackError } = await supabase.from("subscriptions").insert({
-    customer_id: user.id, plan: "starter", status: "active", amount: 0, currency: "NGN",
+    customer_id: context.customerId, plan: "starter", status: "active", amount: 0, currency: "NGN",
     started_at: now, expires_at: null, payment_id: "downgrade-after-cancel", updated_at: now
   }).select("id,plan,status,amount,currency,started_at,expires_at,payment_id").single();
   if (fallbackError) throw fallbackError;
